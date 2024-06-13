@@ -1,0 +1,259 @@
+---
+title: "Competition for pollen deposition space on pollinators generates an
+ advantage for the last male visited"
+author: "Pam"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    self_contained: true
+    thumbnails: false
+    lightbox: true
+    gallery: false
+  pdf_document:
+    highlight: tango
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+
+library("readr")
+library("tidyverse")
+library("ggeffects")
+library("performance")
+library("knitr")
+library("MuMIn")
+library ("patchwork")
+library("bbmle")
+library("purrr")
+library("hnp")
+library("glmmTMB")
+library("DHARMa")
+library("emmeans")
+library("pscl")
+
+knitr::opts_chunk$set(fig.align = 'center', warning = FALSE, message = FALSE, error = FALSE, echo=T, cache=F)
+options(formatR.arrow = TRUE, width = 90, help_type = "html")
+
+```
+
+# Data
+
+Data description and summary statitiscs. From the 43 pairwise presentations,
+we did not found any pollen in 12, neither for C or T.
+
+
+```{r loading the data, include=FALSE}
+
+male_male <- read_delim("1. data raw/male_male.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+View(male_male)
+str(male_male)
+
+tri<-male_male|>
+ filter(plant_sp == "Tritoniopsis")|>
+ modify_if(is.character, as.factor)|>
+ mutate(presence_ausence = ifelse(pollen_stigma>0,1,0))|>
+  #Creating dummy column to indicate if the pollen arrived at the stigma (1) or not (0)
+ mutate(treat= paste( treatment, owner_pollen, sep="_"))
+
+tri$rep<-as.factor(tri$rep)
+tri$bird_id<-as.factor(tri$bird_id)
+tri$exp_trial<-as.factor(tri$exp_trial)
+
+str(tri)
+summary(tri)
+
+kable(tri|>
+  group_by(treatment, owner_pollen)|>
+  summarise(mean=round(mean(pollen_stigma),2), var=round(var(pollen_stigma),2)))
+```
+
+```{r first visualization of the data, echo=FALSE}
+
+ggplot(tri)+
+  geom_boxplot(aes(y=tri$pollen_stigma, x=tri$treatment, fill=tri$owner_pollen))+
+  xlab ("Treatment")+ 
+  ylab("Amount of labeled pollen grain on stigma")+
+  theme(plot.margin=unit(c(1,1,3,1),"cm"))+
+  theme(axis.title.x = element_text(size=12, color = "black", face = "bold"), axis.title.y = element_text(size=12, color = "black", face = "bold"), axis.text=element_text(size=10))+theme_bw()
+
+```
+
+# Modeling the probability of a male to achieve the stigma
+
+The probability (achieved or not) is modeled by male position (first or second) and the treatment (control or trials), and as random effect the bird id.
+
+Mixed effects model, including bird identity as random intercept.
+
+Binomial distribution
+
+```{r model, echo=TRUE}
+
+m <- glmmTMB(presence_ausence ~ treatment*owner_pollen + (1|bird_id), 
+              family=binomial, data= tri)
+#dropping columns from rank-deficient conditional model: treatmentT:owner_pollen2_male
+
+m0 <- glmmTMB(presence_ausence ~ treat + (1|bird_id/exp_trial), 
+              family=binomial, data= tri)
+m1 <- glmmTMB(presence_ausence ~ treat + (1|bird_id), 
+              family=binomial, data= tri)
+m2<-glmmTMB(presence_ausence ~ treatment + (1|bird_id), 
+              family=binomial, data= tri)
+m3<-glmmTMB(presence_ausence ~ 1 + (1|bird_id), 
+              family=binomial, data= tri)
+
+kable(bbmle::AICtab(m0,m1,m2,m3, base=T, weights=T), digits=2)
+```
+
+The model m0 and m1 are equaly plausible.
+
+## Residual diagnostic of the selected models
+
+Using the `DHARMa` package.
+
+The two most plausible models presented a satisfactory residual diagnostic.
+
+```{r residuals, echo=TRUE}
+
+plot(simulateResiduals(m0))
+#plot(simulateResiduals(m1))
+
+```
+
+## Models results
+
+Predicting the probability of reaching a stigma.
+
+```{r plot one, echo=FALSE}
+summary(m0)
+
+performance::r2(m0)
+my1 <- as.data.frame(ggpredict(m0))
+kable(my1, digits=2)
+
+emS <- emmeans(m0, pairwise ~ treat,
+             regrid="log",
+             type="response")
+
+CS<-contrast(emS[[1]], method = "pairwise")
+#Contrasts are linear combinations of group means that sum to zero. 
+
+ProbPlot<-ggplot(tri, 
+                 aes(x=factor(treat, levels = c("C_1_male", "T_1_male", "T_2_male")), y=presence_ausence)) +
+  geom_point(aes(col=treat), alpha=0.3,size=3,show.legend = F, shape = 16,
+             position=position_jitter(height=0.03, width = 0.1)) +
+  scale_color_manual(values = c("dark grey","dark green" , "#fc9272")) +
+  scale_fill_manual(name="Treatment", values = c("dark grey","dark green" , "#fc9272")) +
+  geom_pointrange(data=my1, aes(x=factor(treat.x, levels = c("C_1_male", "T_1_male", "T_2_male")), y=treat.predicted,ymax=treat.conf.high, ymin=treat.conf.low), alpha=2,
+             position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
+  geom_text(data=my1, label = c("a", "b", "a"), aes(y = rep(1.10,3), x=my1[,1]), size = 6)+
+  scale_y_continuous(limits=c(-0.03,1.10))+
+  scale_x_discrete(labels=c("First male Control", "First male Treat", "Second male Treat"))+
+  labs(x="", y = "Pollen on stigma probability")+
+  theme_bw()+
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5), 
+        text = element_text(size = 12), 
+        axis.title = element_text(size = 14))
+
+#ggsave("Fig4a.png",ProbPlot,width=9, height = 6)
+
+ProbPlot
+
+```
+
+# Exploring the amount of pollen grains that arrive on the stigma
+
+```{r data distribution, echo=FALSE}
+
+ggplot(tri, aes(pollen_stigma))+
+  geom_histogram(binwidth = 3, position = "dodge")+
+  theme_bw()
+
+```
+Our data is zero inflated, indicating that we should compare zero inflated models, negative binomial and other hurdle models.
+
+Zero inflated models are only a possibility if in some cases, the only answer possible is zero. In our case, if no pollen is deposited on pollinator body, no pollen will be deposited on stigma.
+
+On the other option, hurdle models are zero truncated, it means that we are modelling only the pollen distribution of pollen deposited on stigma and we are saying that is a different process: if some pollen is deposited, zero is out of the possibilities.
+
+# Modeling the amount of pollen grains achieve the stigma
+
+
+```{r count modeling, echo=TRUE}
+
+c0<-glm(tri$pollen_stigma~tri$treatment*tri$owner_pollen, family=poisson)
+c1 <- glm.nb(pollen_stigma ~ treat, data=tri)
+#c2<-glmer.nb(pollen_stigma ~ treat+(1|bird_id/exp_trial), data=tri)#singularity
+c2<-glmmTMB(pollen_stigma ~ treat+(1|exp_trial), data=tri, family=nbinom2)
+# Hurdle or truncated Poisson model coefficients
+c3 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
+# Hurdle or truncated negative binonomial model coefficients
+c4 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
+# Zero-inflated Poisson model coefficients
+c5 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
+# Zero-inflated negative binomial model coefficients
+c6 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
+c7<- glmmTMB(pollen_stigma ~ 1+(1|exp_trial), data=tri, family=nbinom2)
+c8<- glmmTMB(pollen_stigma ~ 1, data=tri, family=nbinom2)
+
+bbmle::AICtab(c0,c1,c2, c3, c4,c5,c6,c7,c8, base=T, 
+       weights=T) %>% 
+  kable(digits=2)
+```
+
+## Models result
+
+We found four equally plausible models (delta AIC menor que 2) for the pollen counted on the stigma. The best fitted model was the model with describe the data with a negative binomial distribution and sequence affected the amount of pollen on stigma, having the trial as a random intercept. The second equally plausible model did not have the random factor, the third was using a hurdle model and the last one using a zero inflated model.
+
+
+```{r residual diagnostic, echo=FALSE}
+
+plaumod<-list(c2,c1)
+
+map(plaumod, \(x) plot(simulateResiduals(x)) )
+
+plaumod2<-list(c4,c6)
+hnp(c6)
+hnp(c4)
+
+```
+
+The most plausible models presented a satisfactory residual diagnostic.
+
+```{r plot two, echo=FALSE}
+
+emNegBin <- emmeans(c2, pairwise ~ treat,
+                  regrid="log",
+                  type="response")
+
+CNB<-emmeans::contrast(emNegBin, method = "pairwise")
+emNB<-confint(emNegBin)$emmeans
+
+my2<-as.data.frame(ggpredict(c2))
+performance::r2(c2)
+kable(my2, digits=2)
+
+plot(emNegBin)+theme_bw() +labs(y="", x = "Response")+ scale_y_discrete(labels=c("Control", "First male", "Second male"))
+
+tri|>
+  mutate(treat=treat,as.factor(treat))
+
+tri$treat<-factor(tri$treat, levels = c("C_1_male", "T_1_male", "T_2_male"))
+levels(tri$treat)
+
+CountPlot<- ggplot(tri, aes(x=treat, y=pollen_stigma)) +
+      geom_pointrange(data=my2, aes(x=factor(treat.x,levels = c("C_1_male", "T_1_male", "T_2_male")), y=treat.predicted, ymax=treat.conf.high, ymin=treat.conf.low), alpha=2, position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
+      geom_text(data=my2, label = c("b", "ab", "a"), aes(y = rep(6,3), x=my2[,1]), size = 6)+  scale_x_discrete(labels=c("First male Control", "First male Treat", "Second male Treat"))+
+      labs(x="", y = "Amount of pollen on stigma")+
+      theme_bw()+
+      theme(legend.position = "none", plot.title = element_text(hjust = 0.5), 
+        text = element_text(size = 12), 
+        axis.title = element_text(size = 14))
+
+#ggsave("Fig4b.png",CountPlot,width=9, height = 6)
+CountPlot
+
+```
+
