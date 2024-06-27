@@ -141,17 +141,17 @@ CS<-contrast(emS[[1]], method = "pairwise")
 #Contrasts are linear combinations of group means that sum to zero. 
 
 ProbPlot<-ggplot(tri, 
-                 aes(x=factor(treat, levels = c("C_1_male", "T_1_male", "T_2_male")), y=presence_ausence)) +
+                 aes(x=factor(treat, levels = c("T_1_male", "T_2_male", "C_1_male")), y=presence_ausence)) +
   geom_point(aes(col=treat), alpha=0.3,size=3,show.legend = F, shape = 16,
              position=position_jitter(height=0.03, width = 0.1)) +
   scale_color_manual(values = c("dark grey","dark green" , "#fc9272")) +
   scale_fill_manual(name="Treatment", values = c("dark grey","dark green" , "#fc9272")) +
   geom_pointrange(data=my1, aes(x=factor(treat.x, levels = c("C_1_male", "T_1_male", "T_2_male")), y=treat.predicted,ymax=treat.conf.high, ymin=treat.conf.low), alpha=2,
              position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
-  geom_text(data=my1, label = c("a", "b", "a"), aes(y = rep(1.10,3), x=my1[,1]), size = 6)+
+  geom_text(data=my1, label = c("a", "b", "b"), aes(y = rep(1.10,3), x=my1[,1]), size = 6)+
   scale_y_continuous(limits=c(-0.03,1.10))+
-  scale_x_discrete(labels=c("First male Control", "First male Treat", "Second male Treat"))+
-  labs(x="", y = "Pollen on stigma probability")+
+  scale_x_discrete(labels=c("First male Treat", "Second male Treat", "First male Control"))+
+  labs(x="", y = "Prpbability of stigmatic pollen deposition")+
   theme_bw()+
   theme(legend.position = "none", plot.title = element_text(hjust = 0.5), 
         text = element_text(size = 12), 
@@ -186,7 +186,8 @@ On the other option, hurdle models are zero truncated, it means that we are mode
 c0<-glm(tri$pollen_stigma~tri$treatment*tri$owner_pollen, family=poisson)
 c1 <- glm.nb(pollen_stigma ~ treat, data=tri)
 #c2<-glmer.nb(pollen_stigma ~ treat+(1|bird_id/exp_trial), data=tri)#singularity
-c2<-glmmTMB(pollen_stigma ~ treat+(1|exp_trial), data=tri, family=nbinom2)
+c2<-glmmTMB(pollen_stigma ~ treat+(1|bird_id), data=tri, family=nbinom2)
+c<-glmmTMB(pollen_stigma ~ treatment*owner_pollen, data=tri, family=nbinom2)
 # Hurdle or truncated Poisson model coefficients
 c3 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
 # Hurdle or truncated negative binonomial model coefficients
@@ -198,7 +199,7 @@ c6 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", d
 c7<- glmmTMB(pollen_stigma ~ 1+(1|exp_trial), data=tri, family=nbinom2)
 c8<- glmmTMB(pollen_stigma ~ 1, data=tri, family=nbinom2)
 
-bbmle::AICtab(c0,c1,c2, c3, c4,c5,c6,c7,c8, base=T, 
+bbmle::AICtab(c,c0,c1,c2, c3, c4,c5,c6,c7,c8, base=T, 
        weights=T) %>% 
   kable(digits=2)
 ```
@@ -244,9 +245,9 @@ tri$treat<-factor(tri$treat, levels = c("C_1_male", "T_1_male", "T_2_male"))
 levels(tri$treat)
 
 CountPlot<- ggplot(tri, aes(x=treat, y=pollen_stigma)) +
-      geom_pointrange(data=my2, aes(x=factor(treat.x,levels = c("C_1_male", "T_1_male", "T_2_male")), y=treat.predicted, ymax=treat.conf.high, ymin=treat.conf.low), alpha=2, position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
-      geom_text(data=my2, label = c("b", "ab", "a"), aes(y = rep(6,3), x=my2[,1]), size = 6)+  scale_x_discrete(labels=c("First male Control", "First male Treat", "Second male Treat"))+
-      labs(x="", y = "Amount of pollen on stigma")+
+      geom_pointrange(data=my2, aes(x=factor(treat.x,levels = c("T_1_male", "T_2_male", "C_1_male")), y=treat.predicted, ymax=treat.conf.high, ymin=treat.conf.low), alpha=2, position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
+      geom_text(data=my2, label = c("a", "b", "ab"), aes(y = rep(7.5,3), x=my2[,1]), size = 6)+  scale_x_discrete(labels=c("First male Treat", "Second male Treat", "First male Control"))+
+      labs(x="", y = "Number of pollen grains on stigma")+
       theme_bw()+
       theme(legend.position = "none", plot.title = element_text(hjust = 0.5), 
         text = element_text(size = 12), 
@@ -255,5 +256,17 @@ CountPlot<- ggplot(tri, aes(x=treat, y=pollen_stigma)) +
 #ggsave("Fig4b.png",CountPlot,width=9, height = 6)
 CountPlot
 
+tri$treat<-factor(tri$treat, levels = c("T_1_male","T_2_male", "C_1_male"))
+
+ggplot(tri, aes(x=treat, y=pollen_stigma)) +
+  geom_point(aes(col=treat), alpha=0.3,size=3,show.legend = F, shape = 16, position=position_jitter(height=0.03, width = 0.1)) +  scale_color_manual(values = c("dark green" , "#fc9272","dark grey")) +
+  scale_fill_manual(name="Treatment", values = c("dark green" , "#fc9272", "dark grey")) +
+      geom_pointrange(data=my2, aes(x=factor(treat.x,levels = c("T_1_male", "T_2_male", "C_1_male")), y=treat.predicted, ymax=treat.conf.high, ymin=treat.conf.low), alpha=2, position=position_dodge(0.6), size=1, shape=21, col="black", fill="black") +
+      geom_text(data=my2, label = c("a", "b", "ab"), aes(y = rep(38,3), x=my2[,1]), size = 6)+  scale_x_discrete(labels=c("First male Treat", "Second male Treat", "First male Control"))+
+      labs(x="", y = "Number of pollen grains on stigma")+
+      theme_bw()+
+      theme(legend.position = "none", plot.title = element_text(hjust = 0.5), 
+        text = element_text(size = 12), 
+        axis.title = element_text(size = 14))
 ```
 
