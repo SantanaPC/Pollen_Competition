@@ -103,8 +103,9 @@ m2<-glmmTMB(presence_ausence ~ treatment + (1|bird_id),
               family=binomial, data= tri)
 m3<-glmmTMB(presence_ausence ~ 1 + (1|bird_id), 
               family=binomial, data= tri)
-
-kable(bbmle::AICtab(m0,m1,m2,m3, base=T, weights=T), digits=2)
+m4<-glmmTMB(presence_ausence ~ 1,
+            family=binomial, data= tri)
+kable(bbmle::AICtab(m0,m1,m2,m3,m4, base=T, weights=T), digits=2)
 ```
 
 The model m0 and m1 are equaly plausible.
@@ -117,8 +118,9 @@ The two most plausible models presented a satisfactory residual diagnostic.
 
 ```{r residuals, echo=TRUE}
 
-plot(simulateResiduals(m0))
-#plot(simulateResiduals(m1))
+plauMod<-list(m1,m0)
+
+map(plauMod, \(x) plot(simulateResiduals(x)) )
 
 ```
 
@@ -129,6 +131,7 @@ Predicting the probability of reaching a stigma.
 ```{r plot one, echo=FALSE}
 summary(m0)
 
+performance::r2(m1)
 performance::r2(m0)
 my1 <- as.data.frame(ggpredict(m0))
 kable(my1, digits=2)
@@ -186,20 +189,20 @@ On the other option, hurdle models are zero truncated, it means that we are mode
 c0<-glm(tri$pollen_stigma~tri$treatment*tri$owner_pollen, family=poisson)
 c1 <- glm.nb(pollen_stigma ~ treat, data=tri)
 #c2<-glmer.nb(pollen_stigma ~ treat+(1|bird_id/exp_trial), data=tri)#singularity
-c2<-glmmTMB(pollen_stigma ~ treat+(1|bird_id), data=tri, family=nbinom2)
-c<-glmmTMB(pollen_stigma ~ treatment*owner_pollen, data=tri, family=nbinom2)
+c2<-glmmTMB(pollen_stigma ~ treatment*owner_pollen, data=tri, family=nbinom2)
+c3<-glmmTMB(pollen_stigma ~ treat+(1|bird_id), data=tri, family=nbinom2)
 # Hurdle or truncated Poisson model coefficients
-c3 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
+c4 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
 # Hurdle or truncated negative binonomial model coefficients
-c4 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
+c5 <- hurdle(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
 # Zero-inflated Poisson model coefficients
-c5 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
+c6 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "poisson", data=tri)
 # Zero-inflated negative binomial model coefficients
-c6 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
-c7<- glmmTMB(pollen_stigma ~ 1+(1|exp_trial), data=tri, family=nbinom2)
-c8<- glmmTMB(pollen_stigma ~ 1, data=tri, family=nbinom2)
+c7 <- zeroinfl(pollen_stigma ~ treat | treat, link = "logit", dist = "negbin", data=tri)
+c8<- glmmTMB(pollen_stigma ~ 1+(1|exp_trial), data=tri, family=nbinom2)
+c9<- glmmTMB(pollen_stigma ~ 1, data=tri, family=nbinom2)
 
-bbmle::AICtab(c,c0,c1,c2, c3, c4,c5,c6,c7,c8, base=T, 
+bbmle::AICtab(c0,c1,c2, c3, c4,c5,c6,c7,c8,c9, base=T, 
        weights=T) %>% 
   kable(digits=2)
 ```
@@ -232,8 +235,8 @@ emNegBin <- emmeans(c2, pairwise ~ treat,
 CNB<-emmeans::contrast(emNegBin, method = "pairwise")
 emNB<-confint(emNegBin)$emmeans
 
-my2<-as.data.frame(ggpredict(c2))
-performance::r2(c2)
+my2<-as.data.frame(ggpredict(c1))
+performance::r2(c1)
 kable(my2, digits=2)
 
 plot(emNegBin)+theme_bw() +labs(y="", x = "Response")+ scale_y_discrete(labels=c("Control", "First male", "Second male"))
